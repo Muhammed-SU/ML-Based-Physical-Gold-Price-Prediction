@@ -1,0 +1,42 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+
+os.makedirs("data/raw", exist_ok=True)
+
+# 1. Read the manually downloaded Stooq file
+raw = pd.read_csv("data/raw/xu100_original.csv")
+print(raw.columns.tolist())
+
+# Stooq may use English or Polish column names
+raw = raw.rename(columns={"Data": "Date", "Zamkniecie": "Close"})
+
+# 2. Keep only Date + Close
+df = raw[["Date", "Close"]].rename(columns={"Close": "bist100"})
+df["Date"] = pd.to_datetime(df["Date"])
+df = df.set_index("Date").sort_index()
+
+# 3. Clean
+df = df[~df.index.duplicated(keep="last")]
+df = df[df["bist100"] > 0].dropna()
+df = df[df.index >= "2005-01-01"]
+
+
+# 4. Checks
+print("Rows:", len(df))
+print("From:", df.index.min().date(), "To:", df.index.max().date())
+print(df.describe())
+ret = df["bist100"].pct_change()
+print("Biggest daily moves:")
+print(ret.abs().sort_values(ascending=False).head(5))
+
+# 5. Save
+df.to_csv("data/raw/xu100.csv")
+print("Saved -> data/raw/xu100.csv")
+
+# 6. Plot
+df["bist100"].plot(title="BIST100/USD daily close", figsize=(10, 4))
+plt.ylabel("USD / oz")
+plt.tight_layout()
+plt.savefig("data/raw/xu100.png", dpi=120)
+print("Chart saved -> data/raw/xu100.png")
