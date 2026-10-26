@@ -16,7 +16,7 @@ for c in PRICES:
     f[f"{c}_ret20"] = r.rolling(20).sum()    # 1-month momentum
     f[f"{c}_vol20"] = r.rolling(20).std()    # 1-month volatility
 
-# 2. Technical indicators on gram gold
+# 2. Technical indicators on gram gold (ratios -> comparable across years)
 g = df["gram_altin"]
 f["sma20_dist"] = g / g.rolling(20).mean() - 1
 f["sma50_dist"] = g / g.rolling(50).mean() - 1
@@ -30,17 +30,23 @@ macd = ema12 - ema26
 f["macd"] = macd / g
 f["macd_hist"] = (macd - macd.ewm(span=9, adjust=False).mean()) / g
 
-# 3. Risk, rates and macro (levels + changes)
-f["vix_log"] = np.log(df["vix"])
-f["vix_chg"] = f["vix_log"].diff()
-f["us_real_yield"] = df["us_real_yield"]
+# 3. Risk, rates, macro -> CHANGES or z-scores only (no raw levels = no "era" memorising)
+def zscore(s, n=250):
+    return (s - s.rolling(n).mean()) / s.rolling(n).std()
+
+vix_log = np.log(df["vix"])
+f["vix_chg"] = vix_log.diff()
+f["vix_chg5"] = vix_log.diff(5)
+f["vix_z"] = zscore(vix_log)
+f["us_real_yield_chg1"] = df["us_real_yield"].diff()
 f["us_real_yield_chg5"] = df["us_real_yield"].diff(5)
-f["policy_rate"] = df["policy_rate"]
-f["inflation_yoy"] = df["inflation_yoy"]
-f["inflation_mom"] = df["inflation_mom"]
-f["tr_real_rate"] = df["policy_rate"] - df["inflation_yoy"]
+f["us_real_yield_chg20"] = df["us_real_yield"].diff(20)
 f["policy_chg20"] = df["policy_rate"].diff(20)
-f["gold_silver_ratio"] = df["ons_usd"] / df["gumus_usd"]
+f["policy_chg60"] = df["policy_rate"].diff(60)
+f["inflation_mom"] = df["inflation_mom"]                      # monthly %, similar range in all years
+f["inflation_yoy_chg"] = df["inflation_yoy"].diff(21)         # change vs ~1 month ago
+f["tr_real_rate_chg20"] = (df["policy_rate"] - df["inflation_yoy"]).diff(20)
+f["gold_silver_z"] = zscore(df["ons_usd"] / df["gumus_usd"])
 
 # 4. Calendar
 f["dow"] = df.index.dayofweek
@@ -48,11 +54,12 @@ f["month"] = df.index.month
 
 # 5. Target: next-day log return of gram gold
 f["target"] = np.log(g).shift(-1) - np.log(g)
+f["gram_altin"] = g   # kept for converting predictions back to TL (not a feature)
 
-# Keep price level for plotting / converting predictions back to TL
-f["gram_altin"] = g
-
-f = f.replace([np.inf, -np.inf], np.nan).dropna()
+f = f.replace([np.inf, -np.inf], np.nan)
+# Latest day (its "tomorrow" is unknown) -> used to predict tomorrow
+f.drop(columns=["target"]).dropna().tail(1).to_csv("data/latest.csv")
+f = f.dropna()
 print("Dataset:", f.shape, "|", f.index.min().date(), "->", f.index.max().date())
 print("Features:", f.shape[1] - 2)
 
@@ -65,9 +72,6 @@ for n, s in [("train", train), ("val", val), ("test", test)]:
     s.to_csv(f"data/{n}.csv")
 f.to_csv("data/dataset_features.csv")
 
-# 7. Sanity checks
-print("\nTarget stats (daily log return):")
-print(f["target"].describe().round(4))
 print("\nTop 10 features by |correlation| with target:")
 print(f.drop(columns=["target", "gram_altin"]).corrwith(f["target"]).abs().sort_values(ascending=False).head(10).round(3))
 print("\nSaved -> data/dataset_features.csv, train.csv, val.csv, test.csv")
